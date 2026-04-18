@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scrapepipe.models import SocialPost
+from scrapepipe.models import Comment, SocialPost
 from scrapepipe.utils.filenames import sanitize_filename
 
 
@@ -40,8 +40,34 @@ def render(post: SocialPost) -> str:
         for image_url in post.image_urls:
             lines.append(f"![]({image_url})")
 
+    if post.comments_tree:
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        total_top_level = len(post.comments_tree)
+        lines.append(f"## Comments ({total_top_level} top-level shown of {post.comments} total)")
+        lines.append("")
+        for comment in post.comments_tree:
+            lines.extend(_render_comment(comment, depth=0))
+            lines.append("")
+
     lines.append("")
     return "\n".join(lines)
+
+
+def _render_comment(comment: Comment, *, depth: int) -> list[str]:
+    prefix = "> " * depth
+    header = f"{prefix}**u/{comment.author}** \u00b7 \u2191 {comment.score} \u00b7 {comment.created_at.isoformat()}"
+    body_lines = (comment.body or "").splitlines() or [""]
+    rendered = [header, f"{prefix}"]
+    for body_line in body_lines:
+        rendered.append(f"{prefix}{body_line}")
+
+    for reply in comment.replies:
+        rendered.append(f"{prefix}")
+        rendered.extend(_render_comment(reply, depth=depth + 1))
+
+    return rendered
 
 
 def _first_line(text: str, max_len: int = 80) -> str:

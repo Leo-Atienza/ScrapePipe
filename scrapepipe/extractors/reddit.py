@@ -5,7 +5,7 @@ from urllib.parse import urlencode, urlparse, urlunparse
 import requests
 
 from scrapepipe.extractors.base import Extractor
-from scrapepipe.models import SocialPost
+from scrapepipe.models import Comment, SocialPost
 
 _DEFAULT_USER_AGENT = "ScrapePipe/0.1 (public-json fetcher)"
 _REQUEST_TIMEOUT = 15
@@ -33,7 +33,13 @@ class RedditExtractor(Extractor):
         post_data = _first_post_from_listing(payload)
         if post_data is None:
             raise RedditPostNotFound(f"No post data in response for: {url}")
-        return build_post(post_data, fallback_url=url)
+
+        comments_listing = payload[1] if isinstance(payload, list) and len(payload) > 1 else None
+        comments_tree = _parse_comments_listing(comments_listing) if comments_listing else []
+
+        post = build_post(post_data, fallback_url=url)
+        post.comments_tree = comments_tree
+        return post
 
     def search(
         self,
@@ -166,3 +172,47 @@ def _extract_image_urls(post_data: dict) -> list[str]:
 
 def _looks_like_image(url: str) -> bool:
     return url.lower().split("?", 1)[0].endswith(_IMAGE_EXTS)
+
+
+def _parse_comments_listing(listing: dict | None) -> list[Comment]:
+    if not isinstance(listing, dict):
+        return []
+    data = listing.get("data") or {}
+    children = data.get("children") or []
+    result: list[Comment] = []
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        if child.get("kind") != "t1":
+            # Skip "more" placeholders and non-comment entries.
+            continue
+        comment_data = child.get("data") or {}
+        result.append(_build_comment(comment_data))
+    return result
+
+
+def _build_comment(data: dict) -> Comment:
+    author = data.get("author") or "[deleted]"
+    body = data.get("body")
+    if body is None or data.get("removed_by_category"):
+        body = "[removed]"
+
+    created_utc = data.get("created_utc")
+    created_at = (
+        datetime.fromtimestamp(created_utc, tz=timezone.utc)
+        if created_utc is not None
+        else datetime.now(timezone.utc)
+    )
+
+    replies_field = data.get("replies")
+    replies: list[Comment] = []
+    if isinstance(replies_field, dict):
+        replies = _parse_comments_listing(replies_field)
+
+    return Comment(
+        author=author,
+        body=body,
+        score=data.get("score", 0),
+        created_at=created_at,
+        replies=replies,
+    )
