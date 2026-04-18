@@ -41,14 +41,40 @@ Edit `.env` and fill in your credentials.
 
 ## Usage
 
+### Single post
+
 ```powershell
 python main.py fetch "https://www.reddit.com/r/python/comments/<id>/<slug>/"
 python main.py fetch "https://x.com/<user>/status/<tweet_id>"
 ```
 
-Options:
-- `--outdir PATH` — where to save the `.md` file (default: `./downloads`).
+### Multiple posts
+
+Positional URLs:
+```powershell
+python main.py fetch-many "<url1>" "<url2>" "<url3>"
+```
+
+From a file (one URL per line, `#` comments allowed, blank lines ignored):
+```powershell
+python main.py fetch-many --file urls.txt
+```
+
+### Search Reddit by topic
+
+```powershell
+python main.py search "python dataclass" --limit 10 --sort top
+```
+
+Valid `--sort` values: `relevance` (default), `top`, `new`, `hot`, `comments`.
+
+### Common options
+
+- `--outdir PATH` — where to save the `.md` file(s) (default: `./downloads`).
+- `--delay SECONDS` — (fetch-many only) wait between requests (default: `1.0`).
 - `--verbose` — print full stack trace on error.
+
+**Note:** `search` supports Reddit only. X/Twitter search requires paid API access ($100/mo+). For X, collect tweet URLs manually and use `fetch-many`.
 
 ## Exit codes
 
