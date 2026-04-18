@@ -1,11 +1,11 @@
 import html as html_lib
 import re
+import sys
 from datetime import datetime, timezone
-
-import requests
 
 from scrapepipe.extractors.base import Extractor
 from scrapepipe.models import SocialPost
+from scrapepipe.utils.http import get_with_retry
 
 _OEMBED_URL = "https://publish.twitter.com/oembed"
 _REQUEST_TIMEOUT = 15
@@ -30,13 +30,22 @@ class TwitterPostNotFound(Exception):
     pass
 
 
+def _log_retry(attempt: int, delay: float, status: int) -> None:
+    print(
+        f"  [retry] twitter returned {status}; sleeping {delay:.1f}s "
+        f"(attempt {attempt}).",
+        file=sys.stderr,
+    )
+
+
 class TwitterExtractor(Extractor):
     def fetch(self, url: str) -> SocialPost:
         tweet_id = extract_tweet_id(url)
-        response = requests.get(
+        response = get_with_retry(
             _OEMBED_URL,
             params={"url": url, "omit_script": "1"},
             timeout=_REQUEST_TIMEOUT,
+            on_retry=_log_retry,
         )
         if response.status_code in (403, 404):
             raise TwitterPostNotFound(

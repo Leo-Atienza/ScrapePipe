@@ -60,14 +60,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "fetch":
-        return _run_fetch(args.url, Path(args.outdir), verbose=args.verbose)
+        return _run_fetch(
+            args.url,
+            Path(args.outdir),
+            verbose=args.verbose,
+            download_images_enabled=args.download_images,
+        )
     if args.command == "fetch-many":
         urls = _collect_urls(args.urls, args.url_file)
         if not urls:
             print("Error: no URLs given. Pass URLs as args or use --file.", file=sys.stderr)
             return 2
         return _run_fetch_many(
-            urls, Path(args.outdir), delay=args.delay, verbose=args.verbose
+            urls,
+            Path(args.outdir),
+            delay=args.delay,
+            verbose=args.verbose,
+            download_images_enabled=args.download_images,
         )
     if args.command == "search":
         return _run_search(
@@ -76,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             sort=args.sort,
             outdir=Path(args.outdir),
             verbose=args.verbose,
+            download_images_enabled=args.download_images,
         )
 
     parser.print_help()
@@ -87,6 +97,11 @@ def _add_common_args(subparser: argparse.ArgumentParser) -> None:
         "--outdir",
         default="./downloads",
         help="Output directory for .md files (default: ./downloads).",
+    )
+    subparser.add_argument(
+        "--download-images",
+        action="store_true",
+        help="Download images next to the .md file and reference them locally.",
     )
     subparser.add_argument(
         "--verbose",
@@ -112,7 +127,15 @@ def _collect_urls(cli_urls: list[str], url_file: str | None) -> list[str]:
     return deduped
 
 
-def _run_fetch(url: str, outdir: Path, *, verbose: bool) -> int:
+def _run_fetch(
+    url: str,
+    outdir: Path,
+    *,
+    verbose: bool,
+    download_images_enabled: bool = False,
+) -> int:
+    import os
+
     from dotenv import load_dotenv
 
     from scrapepipe.router import UnsupportedPlatformError, route
@@ -123,7 +146,12 @@ def _run_fetch(url: str, outdir: Path, *, verbose: bool) -> int:
     try:
         extractor = route(url)
         post = extractor.fetch(url)
-        path = write_markdown(post, outdir)
+        path = write_markdown(
+            post,
+            outdir,
+            download_images_enabled=download_images_enabled,
+            user_agent=os.environ.get("REDDIT_USER_AGENT"),
+        )
         print(f"Saved: {path}")
         return 0
     except UnsupportedPlatformError as e:
@@ -134,7 +162,12 @@ def _run_fetch(url: str, outdir: Path, *, verbose: bool) -> int:
 
 
 def _run_fetch_many(
-    urls: list[str], outdir: Path, *, delay: float, verbose: bool
+    urls: list[str],
+    outdir: Path,
+    *,
+    delay: float,
+    verbose: bool,
+    download_images_enabled: bool = False,
 ) -> int:
     from dotenv import load_dotenv
 
@@ -144,7 +177,12 @@ def _run_fetch_many(
     failed = 0
     for i, url in enumerate(urls, start=1):
         print(f"[{i}/{len(urls)}] {url}")
-        code = _run_fetch(url, outdir, verbose=verbose)
+        code = _run_fetch(
+            url,
+            outdir,
+            verbose=verbose,
+            download_images_enabled=download_images_enabled,
+        )
         if code == 0:
             succeeded += 1
         else:
@@ -163,7 +201,10 @@ def _run_search(
     sort: str,
     outdir: Path,
     verbose: bool,
+    download_images_enabled: bool = False,
 ) -> int:
+    import os
+
     from dotenv import load_dotenv
 
     from scrapepipe.extractors.reddit import RedditExtractor
@@ -182,8 +223,14 @@ def _run_search(
 
     print(f"Found {len(posts)} post(s) for {query!r}.")
     saved = 0
+    user_agent = os.environ.get("REDDIT_USER_AGENT")
     for i, post in enumerate(posts, start=1):
-        path = write_markdown(post, outdir)
+        path = write_markdown(
+            post,
+            outdir,
+            download_images_enabled=download_images_enabled,
+            user_agent=user_agent,
+        )
         print(f"[{i}/{len(posts)}] Saved: {path}")
         saved += 1
 
@@ -194,10 +241,15 @@ def _run_search(
 def _handle_api_error(exc: Exception, *, verbose: bool) -> int:
     from scrapepipe.extractors.reddit import RedditPostNotFound
     from scrapepipe.extractors.twitter import TwitterPostNotFound
+    from scrapepipe.utils.http import RateLimitedError
 
     if isinstance(exc, (RedditPostNotFound, TwitterPostNotFound)):
         print(f"Error: {exc}", file=sys.stderr)
         return 3
+
+    if isinstance(exc, RateLimitedError):
+        print(f"Error: {exc}", file=sys.stderr)
+        return 4
 
     import requests
 

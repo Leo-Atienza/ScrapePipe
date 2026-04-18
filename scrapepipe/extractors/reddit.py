@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime, timezone
 from urllib.parse import urlencode, urlparse, urlunparse
 
@@ -6,6 +7,7 @@ import requests
 
 from scrapepipe.extractors.base import Extractor
 from scrapepipe.models import Comment, SocialPost
+from scrapepipe.utils.http import get_with_retry
 
 _DEFAULT_USER_AGENT = "ScrapePipe/0.1 (public-json fetcher)"
 _REQUEST_TIMEOUT = 15
@@ -16,6 +18,14 @@ _IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
 class RedditPostNotFound(Exception):
     pass
+
+
+def _log_retry(attempt: int, delay: float, status: int) -> None:
+    print(
+        f"  [retry] reddit returned {status}; sleeping {delay:.1f}s "
+        f"(attempt {attempt}).",
+        file=sys.stderr,
+    )
 
 
 class RedditExtractor(Extractor):
@@ -74,11 +84,11 @@ class RedditExtractor(Extractor):
         return posts
 
     def _get(self, url: str) -> requests.Response:
-        return requests.get(
+        return get_with_retry(
             url,
             headers={"User-Agent": self._user_agent},
             timeout=_REQUEST_TIMEOUT,
-            allow_redirects=True,
+            on_retry=_log_retry,
         )
 
 
